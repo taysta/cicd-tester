@@ -65,8 +65,30 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      - name: Add MSBuild to PATH
+        shell: pwsh
+        run: |
+          $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vsWhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          
+          if ($vsPath) {
+            Write-Host "Found Visual Studio at: $vsPath"
+          
+            $msBuildPath = Get-ChildItem -Path "$vsPath\MSBuild\Current\Bin\MSBuild.exe" -ErrorAction SilentlyContinue |
+                           Select-Object -First 1 -ExpandProperty Directory
+          
+            if ($msBuildPath) {
+              Write-Host "Found MSBuild at: $msBuildPath"
+              # Add to PATH for future steps
+              echo "$msBuildPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          
+              $env:PATH = "$msBuildPath;$env:PATH"
+            } else {
+              throw "MSBuild not found in VS installation"
+            }
+          } else {
+            throw "Visual Studio installation not found"
+          }
 
       - name: Verify MSBuild
         run: |
