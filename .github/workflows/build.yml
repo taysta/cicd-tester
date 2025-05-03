@@ -60,7 +60,7 @@ jobs:
           mv ./sample-zip/* ./sample-zip.tar.gz
 
       - name: Create latest build
-        uses: crowbarmaster/GH-Automatic-Releases@a92588ee071f23d7901a9febcd245debe2343098
+        uses: crowbarmaster/GH-Automatic-Releases@latest
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           automatic_release_tag: "latest"
