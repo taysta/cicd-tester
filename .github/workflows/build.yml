@@ -26,10 +26,10 @@ jobs:
   sample-job:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Create TaystJK binary archive
         shell: bash
@@ -50,13 +50,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
 
       - name: Create binary archives
         run: |
-          mv ./sample-zip/*      ./sample-zip.tar.gz
+          mv ./sample-zip/* ./sample-zip.tar.gz
 
       - name: Create latest build
         uses: crowbarmaster/GH-Automatic-Releases@a92588ee071f23d7901a9febcd245debe2343098
@@ -77,6 +78,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
@@ -113,6 +115,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
