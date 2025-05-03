@@ -1,6 +1,5 @@
 name: build
 
-
 on:
   workflow_dispatch:
   push:
@@ -46,6 +45,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: [sample-job]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,7 +61,7 @@ jobs:
           mv ./sample-zip/* ./sample-zip.tar.gz
 
       - name: Create latest build
-        uses: crowbarmaster/GH-Automatic-Releases@latest
+        uses: marvinpinto/action-automatic-releases@latest
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           automatic_release_tag: "latest"
@@ -74,6 +75,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/beta'
     needs: [sample-job]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,11 +88,10 @@ jobs:
 
       - name: Create binary archives
         run: |
-          mv ./sample-zip/*      ./sample-zip.tar.gz
-
+          mv ./sample-zip/* ./sample-zip.tar.gz
 
       - name: Create latest beta build
-        uses: crowbarmaster/GH-Automatic-Releases@a92588ee071f23d7901a9febcd245debe2343098
+        uses: marvinpinto/action-automatic-releases@latest
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           automatic_release_tag: "latest-beta"
@@ -103,7 +105,8 @@ jobs:
     if: github.event_name == 'release'
     needs: [sample-job]
     runs-on: ubuntu-22.04
-
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
