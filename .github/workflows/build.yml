@@ -30,7 +30,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Create TaystJK binary archive
+      - name: Create sample binary archive
         shell: bash
         run: |
           tar -czvf sample-zip.tar.gz *
@@ -61,15 +61,17 @@ jobs:
           mv ./sample-zip/* ./sample-zip.tar.gz
 
       - name: Create latest build
-        uses: marvinpinto/action-automatic-releases@latest
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: "latest"
-          prerelease: false
-          title: Latest Build
-          files: |
-            *.zip
-            *.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes || true
+          git push origin :refs/tags/latest || true
+          
+          gh release create latest \
+            --title "Latest Build" \
+            --notes "" \
+            --target ${{ github.sha }} \
+            sample-zip.tar.gz
 
   create-prerelease:
     if: github.event_name == 'push' && github.ref == 'refs/heads/beta'
@@ -91,15 +93,19 @@ jobs:
           mv ./sample-zip/* ./sample-zip.tar.gz
 
       - name: Create latest beta build
-        uses: marvinpinto/action-automatic-releases@latest
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          automatic_release_tag: "latest-beta"
-          prerelease: true
-          title: Beta Build
-          files: |
-            *.zip
-            *.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest-beta --yes || true
+          
+          git push origin :refs/tags/latest-beta || true
+          
+          gh release create latest-beta \
+            --title "Beta Build" \
+            --notes "" \
+            --target ${{ github.sha }} \
+            --prerelease \
+            sample-zip.tar.gz
 
   create-release:
     if: github.event_name == 'release'
@@ -131,10 +137,10 @@ jobs:
             mv ./${{ matrix.artifact_dir }}/* ${{ matrix.artifact_name }}
           fi
 
-      - name: Upload archives
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref }}
-          overwrite: true
-          file: ${{ matrix.artifact_name }}
+      - name: Upload archives to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "${{ matrix.artifact_name }}" \
+            --clobber
