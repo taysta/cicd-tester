@@ -79,7 +79,6 @@ jobs:
           
             if ($msBuildPath) {
               Write-Host "Found MSBuild at: $msBuildPath"
-              # Add to PATH for future steps
               echo "$msBuildPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           
               $env:PATH = "$msBuildPath;$env:PATH"
