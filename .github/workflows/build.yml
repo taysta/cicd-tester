@@ -64,12 +64,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete latest --yes || true
-          git push origin :refs/tags/latest || true
+          gh release delete latest --cleanup-tag --yes || true
           
+          RELEASE_BODY="## Commits"
+          
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log -3 --pretty=format:"%h|%s|%an")
+          else
+            COMMITS=$(git log $LAST_TAG..HEAD --pretty=format:"%h|%s|%an" -n 10)
+          fi
+          
+          while IFS='|' read -r hash subject author; do
+            if [[ $subject =~ \(#([0-9]+)\)$ ]]; then
+              PR_NUM="${BASH_REMATCH[1]}"
+              subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
+              PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
+            else
+              PR_LINK=""
+            fi
+            RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
+          done <<< "$COMMITS"
+          
+          # Create release
           gh release create latest \
             --title "Latest Build" \
-            --notes "" \
+            --notes "$RELEASE_BODY" \
             --target ${{ github.sha }} \
             sample-zip.tar.gz
 
@@ -96,13 +117,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete latest-beta --yes || true
+          gh release delete latest-beta --cleanup-tag --yes || true
           
-          git push origin :refs/tags/latest-beta || true
+          RELEASE_BODY="## Commits"
           
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log -3 --pretty=format:"%h|%s|%an")
+          else
+            COMMITS=$(git log $LAST_TAG..HEAD --pretty=format:"%h|%s|%an" -n 10)
+          fi
+          
+          while IFS='|' read -r hash subject author; do
+            if [[ $subject =~ \(#([0-9]+)\)$ ]]; then
+              PR_NUM="${BASH_REMATCH[1]}"
+              subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
+              PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
+            else
+              PR_LINK=""
+            fi
+            RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
+          done <<< "$COMMITS"
+          
+          # Create release
           gh release create latest-beta \
             --title "Beta Build" \
-            --notes "" \
+            --notes "$RELEASE_BODY" \
             --target ${{ github.sha }} \
             --prerelease \
             sample-zip.tar.gz
