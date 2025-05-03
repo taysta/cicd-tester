@@ -41,12 +41,12 @@ jobs:
       - name: Create sample binary archive
         shell: bash
         run: |
-          tar -czvf sample-zip.tar.gz *
+          tar -czvf sample-linux.tar.gz *
 
       - uses: actions/upload-artifact@v4
         with:
-          name: sample-zip
-          path: sample-zip.tar.gz
+          name: sample-linux
+          path: sample-linux.tar.gz
           if-no-files-found: error
 
   sample-job-msvc:
@@ -68,10 +68,20 @@ jobs:
       - name: Add msbuild to PATH
         uses: microsoft/setup-msbuild@v2
 
+      - name: Verify MSBuild
+        run: |
+          msbuild -version
+          where msbuild
+
+      - name: Create Windows archive
+        shell: bash
+        run: |
+          7z a -r sample-windows.zip *
+
       - uses: actions/upload-artifact@v4
         with:
-          name: sample-zip-msvc
-          path: ${{ github.workspace }}/*
+          name: sample-windows
+          path: sample-windows.zip
           if-no-files-found: error
 
   create-latest:
@@ -88,11 +98,8 @@ jobs:
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
-
-      - name: Create binary archives
-        run: |
-          7z a -r sample-zip-windows.zip ./sample-zip-msvc/*
-          mv ./sample-zip/* ./sample-zip.tar.gz
+        with:
+          path: artifacts
 
       - name: Create latest build
         env:
@@ -112,30 +119,33 @@ jobs:
           while IFS='|' read -r hash subject author; do
             if [[ $subject =~ ^Merge\ pull\ request\ \#([0-9]+) ]]; then
               PR_NUM="${BASH_REMATCH[1]}"
-              if [[ $subject =~ from.*\/(.*)$ ]]; then
-                BRANCH_NAME="${BASH_REMATCH[1]}"
-                RELEASE_BODY+=$'\n'"- $hash: Merge pull request #${PR_NUM} from ${BRANCH_NAME} ($author)"
-              else
-                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-              fi
+              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
+            elif [[ $subject =~ \(#([0-9]+)\)$ ]]; then
+              PR_NUM="${BASH_REMATCH[1]}"
+              subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
+              PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
+              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
             else
-              if [[ $subject =~ \(#([0-9]+)\)$ ]]; then
-                PR_NUM="${BASH_REMATCH[1]}"
-                subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
-                PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
-                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
-              else
-                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-              fi
+              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
             fi
           done <<< "$COMMITS"
           
-          # Create release
+          RELEASE_FILES=""
+          for artifact_dir in artifacts/*; do
+            if [ -d "$artifact_dir" ]; then
+              for file in "$artifact_dir"/*; do
+                if [ -f "$file" ]; then
+                  RELEASE_FILES="$RELEASE_FILES $file"
+                fi
+              done
+            fi
+          done
+          
           gh release create latest \
             --title "Latest Build" \
             --notes "$RELEASE_BODY" \
             --target ${{ github.sha }} \
-            sample-zip.tar.gz
+            $RELEASE_FILES
 
   create-prerelease:
     if: github.event_name == 'push' && github.ref == 'refs/heads/beta'
@@ -151,11 +161,8 @@ jobs:
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
-
-      - name: Create binary archives
-        run: |
-          mv ./sample-zip/* ./sample-zip.tar.gz
-          7z a -r sample-zip-windows.zip ./sample-zip-msvc/*
+        with:
+          path: artifacts
 
       - name: Create latest beta build
         env:
@@ -175,31 +182,34 @@ jobs:
           while IFS='|' read -r hash subject author; do
             if [[ $subject =~ ^Merge\ pull\ request\ \#([0-9]+) ]]; then
               PR_NUM="${BASH_REMATCH[1]}"
-              if [[ $subject =~ from.*\/(.*)$ ]]; then
-                BRANCH_NAME="${BASH_REMATCH[1]}"
-                RELEASE_BODY+=$'\n'"- $hash: Merge pull request #${PR_NUM} from ${BRANCH_NAME} ($author)"
-              else
-                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-              fi
+              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
+            elif [[ $subject =~ \(#([0-9]+)\)$ ]]; then
+              PR_NUM="${BASH_REMATCH[1]}"
+              subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
+              PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
+              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
             else
-              if [[ $subject =~ \(#([0-9]+)\)$ ]]; then
-                PR_NUM="${BASH_REMATCH[1]}"
-                subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
-                PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
-                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
-              else
-                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-              fi
+              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
             fi
           done <<< "$COMMITS"
           
-          # Create release
+          RELEASE_FILES=""
+          for artifact_dir in artifacts/*; do
+            if [ -d "$artifact_dir" ]; then
+              for file in "$artifact_dir"/*; do
+                if [ -f "$file" ]; then
+                  RELEASE_FILES="$RELEASE_FILES $file"
+                fi
+              done
+            fi
+          done
+          
           gh release create latest-beta \
             --title "Beta Build" \
             --notes "$RELEASE_BODY" \
             --target ${{ github.sha }} \
             --prerelease \
-            sample-zip.tar.gz
+            $RELEASE_FILES
 
   create-release:
     if: github.event_name == 'release'
@@ -207,17 +217,6 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
-    strategy:
-      matrix:
-        include:
-          - artifact_dir: sample-zip
-            artifact_name: sample-zip.tar.gz
-            zip: false
-
-          - artifact_dir: sample-zip-windows
-            artifact_name: sample-zip-windows.zip
-            zip: false
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -226,19 +225,21 @@ jobs:
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
-
-      - name: Create archive
-        run: |
-          if [ "${{ matrix.zip }}" == "true" ]; then
-            7z a -r ${{ matrix.artifact_name }} ./${{ matrix.artifact_dir }}/*
-          else
-            mv ./${{ matrix.artifact_dir }}/* ${{ matrix.artifact_name }}
-          fi
+        with:
+          path: artifacts
 
       - name: Upload archives to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            "${{ matrix.artifact_name }}" \
-            --clobber
+          for artifact_dir in artifacts/*; do
+            if [ -d "$artifact_dir" ]; then
+              for file in "$artifact_dir"/*; do
+                if [ -f "$file" ]; then
+                  gh release upload "${{ github.event.release.tag_name }}" \
+                    "$file" \
+                    --clobber
+                fi
+              done
+            fi
+          done
