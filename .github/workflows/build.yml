@@ -22,13 +22,21 @@ on:
     types: [published]
 
 jobs:
-  sample-job:
+  sample-job-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
         with:
-          submodules: recursive
           fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request'
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Create sample binary archive
         shell: bash
@@ -41,9 +49,34 @@ jobs:
           path: sample-zip.tar.gz
           if-no-files-found: error
 
+  sample-job-msvc:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request'
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sample-zip-msvc
+          path: ${{ github.workspace }}/*
+          if-no-files-found: error
+
   create-latest:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [sample-job]
+    needs: [sample-job-linux, sample-job-msvc]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -58,6 +91,7 @@ jobs:
 
       - name: Create binary archives
         run: |
+          7z a -r sample-zip-windows.zip ./sample-zip-msvc/*
           mv ./sample-zip/* ./sample-zip.tar.gz
 
       - name: Create latest build
@@ -105,7 +139,7 @@ jobs:
 
   create-prerelease:
     if: github.event_name == 'push' && github.ref == 'refs/heads/beta'
-    needs: [sample-job]
+    needs: [sample-job-linux, sample-job-msvc]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -121,6 +155,7 @@ jobs:
       - name: Create binary archives
         run: |
           mv ./sample-zip/* ./sample-zip.tar.gz
+          7z a -r sample-zip-windows.zip ./sample-zip-msvc/*
 
       - name: Create latest beta build
         env:
@@ -168,7 +203,7 @@ jobs:
 
   create-release:
     if: github.event_name == 'release'
-    needs: [sample-job]
+    needs: [sample-job-linux, sample-job-msvc]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -177,6 +212,10 @@ jobs:
         include:
           - artifact_dir: sample-zip
             artifact_name: sample-zip.tar.gz
+            zip: false
+
+          - artifact_dir: sample-zip-windows
+            artifact_name: sample-zip-windows.zip
             zip: false
 
     steps:
