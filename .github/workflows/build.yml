@@ -1,24 +1,15 @@
 name: build
 
-
-
-
-
-
 on:
   workflow_dispatch:
   push:
-    branches:
-      - master
-      - beta
+    branches: [master]
     paths-ignore:
       - "**.md"
       - ".gitignore"
       - "docs/*"
   pull_request:
-    branches:
-      - master
-      - beta
+    branches: [master]
     paths-ignore:
       - "**.md"
       - ".gitignore"
@@ -28,7 +19,7 @@ on:
 
 jobs:
   sample-job-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
@@ -70,44 +61,13 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Add MSBuild to PATH
-        shell: pwsh
-        run: |
-          $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsPath = & $vsWhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
-          
-          if ($vsPath) {
-            Write-Host "Found Visual Studio at: $vsPath"
-          
-            $msBuildPath = Get-ChildItem -Path "$vsPath\MSBuild\Current\Bin\MSBuild.exe" -ErrorAction SilentlyContinue |
-                           Select-Object -First 1 -ExpandProperty Directory
-          
-            if ($msBuildPath) {
-              Write-Host "Found MSBuild at: $msBuildPath"
-              echo "$msBuildPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          
-              $env:PATH = "$msBuildPath;$env:PATH"
-            } else {
-              throw "MSBuild not found in VS installation"
-            }
-          } else {
-            throw "Visual Studio installation not found"
-          }
-
-      - name: Verify MSBuild
-        run: |
-          msbuild -version
-          where msbuild
-
-      - name: Create Windows archive
-        shell: bash
-        run: |
-          7z a -r sample-windows.zip *
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.3.2
 
       - uses: actions/upload-artifact@v4
         with:
           name: sample-windows
-          path: sample-windows.zip
+          path: .
           if-no-files-found: error
 
   create-latest:
@@ -120,152 +80,64 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+
+      - name: Create binary archives
+        run: |
+          7z a -r sample-windows.zip ./sample-windows/*
+          mv ./sample-linux/* sample-linux.tar.gz
 
       - name: Create latest build
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          LATEST_RELEASE_COMMIT=$(gh api repos/${{ github.repository }}/releases/tags/latest --jq '.target_commitish' 2>/dev/null || echo "")
-          gh release delete latest --cleanup-tag --yes || true
-          
-          RELEASE_BODY="## Commits"
-          
-          if [ -n "$LATEST_RELEASE_COMMIT" ]; then
-            COMMITS=$(git log $LATEST_RELEASE_COMMIT..HEAD --pretty=format:"%h|%s|%an")
-          else
-            COMMITS=$(git log -3 --pretty=format:"%h|%s|%an")
-          fi
-          
-          while IFS='|' read -r hash subject author; do
-            if [[ $subject =~ ^Merge\ pull\ request\ \#([0-9]+) ]]; then
-              PR_NUM="${BASH_REMATCH[1]}"
-              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-            elif [[ $subject =~ \(#([0-9]+)\)$ ]]; then
-              PR_NUM="${BASH_REMATCH[1]}"
-              subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
-              PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
-              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
-            else
-              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-            fi
-          done <<< "$COMMITS"
-          
-          RELEASE_FILES=""
-          for artifact_dir in artifacts/*; do
-            if [ -d "$artifact_dir" ]; then
-              for file in "$artifact_dir"/*; do
-                if [ -f "$file" ]; then
-                  RELEASE_FILES="$RELEASE_FILES $file"
-                fi
-              done
-            fi
-          done
-          
-          gh release create latest \
-            --title "Latest Build" \
-            --notes "$RELEASE_BODY" \
-            --target ${{ github.sha }} \
-            $RELEASE_FILES
-
-  create-prerelease:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/beta'
-    needs: [sample-job-linux, sample-job-msvc]
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
+        uses: softprops/action-gh-release@v1
         with:
-          submodules: recursive
-          fetch-depth: 0
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          generate_release_notes: true
+          tag_name: "latest"
+          prerelease: false
+          title: Latest Build
+          files: |
+            *.zip
+            *.tar.gz
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create latest beta build
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          LATEST_BETA_COMMIT=$(gh api repos/${{ github.repository }}/releases/tags/latest-beta --jq '.target_commitish' 2>/dev/null || echo "")
-          gh release delete latest-beta --cleanup-tag --yes || true
-          
-          RELEASE_BODY="## Commits"
-          
-          if [ -n "$LATEST_BETA_COMMIT" ]; then
-            COMMITS=$(git log $LATEST_BETA_COMMIT..HEAD --pretty=format:"%h|%s|%an")
-          else
-            COMMITS=$(git log -3 --pretty=format:"%h|%s|%an")
-          fi
-          
-          while IFS='|' read -r hash subject author; do
-            if [[ $subject =~ ^Merge\ pull\ request\ \#([0-9]+) ]]; then
-              PR_NUM="${BASH_REMATCH[1]}"
-              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-            elif [[ $subject =~ \(#([0-9]+)\)$ ]]; then
-              PR_NUM="${BASH_REMATCH[1]}"
-              subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
-              PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
-              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
-            else
-              RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
-            fi
-          done <<< "$COMMITS"
-          
-          RELEASE_FILES=""
-          for artifact_dir in artifacts/*; do
-            if [ -d "$artifact_dir" ]; then
-              for file in "$artifact_dir"/*; do
-                if [ -f "$file" ]; then
-                  RELEASE_FILES="$RELEASE_FILES $file"
-                fi
-              done
-            fi
-          done
-          
-          gh release create latest-beta \
-            --title "Beta Build" \
-            --notes "$RELEASE_BODY" \
-            --target ${{ github.sha }} \
-            --prerelease \
-            $RELEASE_FILES
 
   create-release:
     if: github.event_name == 'release'
     needs: [sample-job-linux, sample-job-msvc]
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - artifact_dir: sample-windows
+            artifact_name: sample-windows.zip
+            zip: true
+
+          - artifact_dir: sample-linux
+            artifact_name: sample-linux.tar.gz
+            zip: false
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
-        with:
-          path: artifacts
 
-      - name: Upload archives to release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create archive
         run: |
-          for artifact_dir in artifacts/*; do
-            if [ -d "$artifact_dir" ]; then
-              for file in "$artifact_dir"/*; do
-                if [ -f "$file" ]; then
-                  gh release upload "${{ github.event.release.tag_name }}" \
-                    "$file" \
-                    --clobber
-                fi
-              done
-            fi
-          done
+          if [ "${{ matrix.zip }}" == "true" ]; then
+            7z a -r ${{ matrix.artifact_name }} ./${{ matrix.artifact_dir }}/*
+          else
+            mv ./${{ matrix.artifact_dir }}/* ${{ matrix.artifact_name }}
+          fi
+
+      - name: Upload archives
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref }}
+          overwrite: true
+          file: ${{ matrix.artifact_name }}
