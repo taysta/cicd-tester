@@ -64,10 +64,15 @@ jobs:
       - name: Add msbuild to PATH
         uses: microsoft/setup-msbuild@v1.3.2
 
+      - name: Create sample binary archive
+        shell: bash
+        run: |
+          7z a -r sample-windows.zip *
+
       - uses: actions/upload-artifact@v4
         with:
           name: sample-windows
-          path: .
+          path: sample-windows.zip
           if-no-files-found: error
 
   create-latest:
@@ -83,24 +88,99 @@ jobs:
 
       - name: Download Artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      - name: Create binary archives
+      - name: Rename binary archives
         run: |
-          7z a -r sample-windows.zip ./sample-windows/*
-          mv ./sample-linux/* sample-linux.tar.gz
+          mv ./artifacts/sample-windows/* artifacts/sample-windows/sample-windows-release.zip
+          mv ./artifacts/sample-linux/* artifacts/sample-linux/sample-linux-release.tar.gz
 
+# Revert to marvinpinto and pin to commit
       - name: Create latest build
-        uses: softprops/action-gh-release@v1
+        uses: marvinpinto/action-automatic-releases@d68defdd11f9dcc7f52f35c1b7c236ee7513bcc1 # latest
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          generate_release_notes: true
-          tag_name: "latest"
+          automatic_release_tag: "latest"
           prerelease: false
           title: Latest Build
           files: |
-            *.zip
-            *.tar.gz
+            artifacts/sample-windows/*.zip
+            artifacts/sample-linux/*.tar.gz
 
+# Fix softprops:
+#      - name: Delete Latest Build
+#        env:
+#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          gh release delete latest --cleanup-tag --yes || true
+#
+#      - name: Create latest build
+#        uses: softprops/action-gh-release@v1
+#        with:
+#          token: ${{ secrets.GITHUB_TOKEN }}
+#          generate_release_notes: true
+#          tag_name: "latest"
+#          name: Latest Build
+#          target_commitish: ${{ github.sha }}
+#          files: |
+#            *.zip
+#            *.tar.gz
+
+# Custom solution:
+#      - name: Create Latest Build
+#        env:
+#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          LATEST_RELEASE_COMMIT=$(gh release view latest --json 'targetCommitish' --jq '.target_commitish' || echo "")
+#          gh release delete latest --cleanup-tag --yes || true
+#
+#          RELEASE_BODY="## Commits"
+#
+#          if [ -n "$LATEST_RELEASE_COMMIT" ]; then
+#            COMMITS=$(git log $LATEST_RELEASE_COMMIT..HEAD --pretty=format:"%h|%s|%an")
+#          else
+#            COMMITS=$(git log -10 --pretty=format:"%h|%s|%an")
+#          fi
+#
+#          if [ -n "$COMMITS" ]; then
+#            while IFS='|' read -r hash subject author; do
+#              if [[ $subject =~ ^Merge\ pull\ request\ \#([0-9]+) ]]; then
+#                PR_NUM="${BASH_REMATCH[1]}"
+#                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
+#              elif [[ $subject =~ \(#([0-9]+)\)$ ]]; then
+#                PR_NUM="${BASH_REMATCH[1]}"
+#                subject=$(echo "$subject" | sed 's/ (#[0-9]\+)$//')
+#                PR_LINK=" [#${PR_NUM}](https://github.com/${{ github.repository }}/pull/${PR_NUM})"
+#                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)${PR_LINK}"
+#              else
+#                RELEASE_BODY+=$'\n'"- $hash: $subject ($author)"
+#              fi
+#            done <<< "$COMMITS"
+#          else
+#            RELEASE_BODY+=$'\n'"No new commits since last release."
+#          fi
+#
+#          RELEASE_FILES=""
+#          if [ -d "artifacts" ]; then
+#            for artifact_dir in artifacts/*; do
+#              if [ -d "$artifact_dir" ]; then
+#                for file in "$artifact_dir"/*; do
+#                  if [ -f "$file" ]; then
+#                    filename=$(basename "$file" | sed -e 's/-Release-Non-Portable//' -e 's/-Release-Portable//')
+#                    cp "$file" "$filename"
+#                    RELEASE_FILES="$RELEASE_FILES $filename"
+#                  fi
+#                done
+#              fi
+#            done
+#          fi
+#
+#          gh release create latest \
+#            --title "Latest Build" \
+#            --notes "$RELEASE_BODY" \
+#            --target ${{ github.sha }} \
+#            $RELEASE_FILES
 
   create-release:
     if: github.event_name == 'release'
